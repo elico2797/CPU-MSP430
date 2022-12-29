@@ -1,0 +1,82 @@
+#include "msp430g2553.h" // #include <msp430.h> - can be used as well
+
+Debounce     MACRO  cycles
+             LOCAL  L
+             mov.w  cycles,R12     
+L            dec.w  R12                     
+             jnz    L
+             ENDM
+;-------------------------------------------------------------------------------
+            ORG     0x200                  ; Begins a RAM segment
+;-------------------------------------------------------------------------------
+S4          DB      0       ; STATE OF LEDS
+Pull        EQU     280                     ; wait of 0.8msec = (3op*280)/2^20
+            NAME    Main
+            PUBLIC  Main,S4
+            EXTERN  Routine_1,Routine_2,Routine_3
+;-------------------------------------------------------------------------------
+            RSEG    CSTACK                  ; Begins a relocatable segment name of CSTACK - Define stack segment
+;-------------------------------------------------------------------------------
+            RSEG    CODE                    ; Assemble to Flash memory -like void main in C
+;-----------------------------------------------------------------------------
+Main         MOV.W   #SFE(CSTACK),SP        ; Initialize stack pointer
+StopWDT      MOV.W   #WDTPW+WDTHOLD,&WDTCTL
+             
+SetupP2      BIC.B   #0xC0,&P2SEL
+             BIC.B   #0x00,&P2DIR
+             MOV.B   #0x03,&P2IES
+             MOV.B   #0x03,&P2IE
+             BIC.B   #0xFF,&P2IFG           ; reset of interrupt flag   
+             
+SetupP1      
+             MOV.B   #0xFE,&P1DIR
+             MOV.B   #0x00,&P1IES
+             MOV.B   #0x01,&P1IE
+             BIC.B   #0xFF,&P1IFG           ; reset of interrupt flag   
+             BIC.B   #0xFE,&P1OUT
+             
+             
+             BIS.W   #CPUOFF+GIE,SR          ; SLEEP 
+;------------------------------------------------------------------------------------------ 
+;               PORT1 Interrupt Service Routine  of SW1=P1.0 and P1.1
+;------------------------------------------------------------------------------------------
+PORT2_ISR   Debounce #Pull
+            CLRZ
+            MOV     R4, S4
+Check0      CMP.B   #0x01,&P2IFG            ; CHECK IF ONLY BUTTON 0 IS ON
+            JZ      P2_0 
+Check1      CMP.B   #0x02,&P2IFG            ; CHECK IF ONLY BUTTON 1 IS ON
+            JZ      P2_1 
+            
+P2_0       
+            CALL   #Routine_1              
+            BIC.B  #0x01,&P2IFG
+            BIS.B #0x01,&P1IE
+            JMP    RETURN   
+P2_1        CALL   #Routine_2              
+            BIC.B  #0x02,&P2IFG
+            BIS.B #0x01,&P1IE
+            JMP    RETURN
+
+RETURN      BIC    #CPUOFF,0(SP )  ; Exit LMP0
+            RETI 
+              
+            
+;           PORT2 Interrupt Service Routine  of SW2=P2.0
+;------------------------------------------------------------------------------------------
+PORT1_ISR   Debounce #Pull                  ;Do not check, interupt immidetly 
+            CALL   #Routine_3
+            BIC.B  #0x01,&P1IFG
+            BIS.B #0x01,&P1IE
+            BIC    #CPUOFF,0(SP )  ; Exit LMP0
+            RETI 
+;-------------------------------------------------------------------------------------------------------------------------------------------
+            COMMON  INTVEC                  ; Interrupt Vectors-Begins a common segment with name of INTVEC 
+;-------------------------------------------------------------------------------------------------------------------------------------------
+            ORG     PORT2_VECTOR            ;PORT2 Interrupt Vector
+            DW      PORT2_ISR
+            ORG     PORT1_VECTOR            ;PORT2 Interrupt Vector
+            DW      PORT1_ISR
+            ORG     RESET_VECTOR            ; MSP430 RESET Vector
+            DW      Main                   
+            END

@@ -1,0 +1,58 @@
+#include "msp430g2553.h" // #include <msp430.h> - can be used as well
+
+           MODULE   SW
+           PUBLIC   Routine_1,Routine_2,Routine_3
+           RSEG     CODE
+           EXTERN   S4
+                  
+Routine_1 
+          MOV   #0, R4
+L1        MOV.B R4,&P1OUT 
+          CALL #Wait
+          INC   R4
+          CMP   #16,R4
+          JNE   L1
+          MOV.B #0,&P1OUT
+          RET
+          
+Routine_2 
+          MOV   #5, R5
+Start_2   MOV   #1, R6
+L2        MOV.B R6,&P1OUT 
+          CALL #Wait
+          RLA   R6
+          BIT   #0x0100,R6
+          JZ    L2
+          DEC   R5
+          JNZ   Start_2
+          MOV.B #0,&P1OUT
+          RET
+          
+Routine_3 
+          BIC.B #0x01,&P1IE
+          BIS   #GIE, SR
+          MOV   #5, R5
+          MOV   S4, R4 
+L3        MOV.B R4,&P1OUT 
+          CALL #Wait
+          RLA   R4
+          INC   R4
+          CMP   #0x01FF,R4
+          JNZ   L3
+          CLR   R4
+          DEC   R5
+          JNZ   L3
+          MOV.B #0,&P1OUT
+          RET
+            
+Wait       MOV #5,R8
+P          MOV.W #32767,R15
+L          DEC.W R15
+           JNZ L   
+           DEC R8
+           JNZ P
+           RET
+           
+           ENDMOD
+//=============================================================           21 
+           END
