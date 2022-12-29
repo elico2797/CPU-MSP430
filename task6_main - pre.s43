@@ -1,0 +1,129 @@
+#include "msp430g2553.h" // #include <msp430.h> - can be used as well
+Delay        MACRO  cycles
+             LOCAL  L
+             mov.w  cycles,R12     
+L            dec.w  R12                     
+             jnz    L
+             ENDM
+;-------------------------------------------------------------------------------
+            ORG     0200h                  ; Begins a RAM segment
+;-------------------------------------------------------------------------------
+
+avgs        DW      0      
+            ORG     0266h                  ; Begins a RAM segment
+state       DW      3                       ; STATE 3 IS SLEEP MODE
+counter     DS32    0
+messmin     DW      "V min="
+messmax     DW      "V max="
+messavg     DW      "V avg="
+sleep1      DW      "I'm Sleeping"
+Asci        DW      48,49,50,51,52,53,54,55,56,57,65,66,67,68,69,70
+Pull        EQU     280                     ; wait of 0.8msec = (3op*280)/2^20
+            NAME    Main
+            PUBLIC  Main,state,Asci,messmin, messmax, messavg, avgs, sleep1
+            EXTERN  Routine_1,Routine_2,Routine_3,setup_LCD, Routine_11, Routine_22
+;-------------------------------------------------------------------------------
+            ORG     0F800h
+;-----------------------------------------------------------------------------
+Main         mov.w   #0380h,SP        ; Initialize stack pointer
+StopWDT      MOV.W   #WDTPW+WDTHOLD,&WDTCTL
+SetupBT      mov.w   #CCIE,&CCTL0
+             bic.w   #CCIE,&CCTL0 
+SetupTA      mov.w   #TASSEL_2+MC_1+ID_3,&TACTL   ; ACLK, up_downmode
+             bis.b   #DIVS0+DIVS1,BCSCTL2
+SetupP1      BIS.B   #0x00,&P1SEL
+             BIS.B   #0x00,&P1DIR
+             BIC.B   #BIT0+BIT1+BIT2,&P1DIR
+             MOV.B   #0x03,&P1IES
+             MOV.B   #0x07,&P1IE
+             BIC.B   #0xFF,&P1IFG           ; reset of interrupt flag   
+             
+             bic.b   #0xFF,&P2SEL 
+             
+             CALL    #setup_LCD
+
+
+             jmp nomy
+;----------- FSM_loop -------------------------------------
+state0       CMP     #0,state       
+             JNZ     state1            
+             bis.w   #CCIE,&CCTL0 
+             mov.w   #0xF000,&CCR0
+             CALL    #Routine_1
+             bic.w   #CCIE,&CCTL0
+             JMP     nomy
+             
+
+state1       CMP     #1,state
+             JNZ     state2 
+             bis.w   #CCIE,&CCTL0 
+             mov.w   #0xF000,&CCR0
+             CALL    #Routine_2
+             bic.w   #CCIE,&TA1CCTL0
+             JMP     nomy
+             
+             
+state2       CMP     #2,state
+             JMP     nomy
+
+
+nomy         BIS.W   #CPUOFF+GIE,SR          ; SLEEP 
+             JMP     state0
+;------------------------------------------------------------------------------------------ 
+;               PORT2 Interrupt Service Routine  of SW1=P2.0
+;------------------------------------------------------------------------------------------
+PORT1_ISR
+deb_ounce   Delay   #Pull
+            CLRZ
+Check0      BIT.B   #0x01,&P1IFG            ; CHECK IF ONLY BUTTON 0 IS ON
+            JNZ     P1_0 
+Check1      BIT.B   #0x02,&P1IFG            ; CHECK IF ONLY BUTTON 1 IS ON
+            JNZ     P1_1 
+Check2      BIT.B   #0x04,&P1IFG            ; CHECK IF ONLY BUTTON 2 IS ON
+            JNZ     P1_2 
+
+
+            
+P1_0        MOV    #0,state                 ; WE ARE IN STATE 0
+            JMP    RETURN
+P1_1        MOV    #1,state                 ; WE ARE IN STATE 1
+            JMP    RETURN
+P1_2        MOV    #2,state                 ; WE ARE IN STATE 2 
+            bic.w   #CCIE,&CCTL0 
+            BIC.B  #0x07,&P1IFG
+            call   #Routine_3
+            jmp    nomy
+            RETI
+
+
+
+RETURN      BIC.B  #0x07,&P1IFG
+            BIC    #CPUOFF,0(SP)  ; Exit LMP0
+            RETI             
+
+;-------------------------------------------------------------------------------------------------------------------------------------------            
+
+ADC10_ISR  
+            BIC    #CPUOFF,0(SP)   
+            RETI
+TIMER0_ISR  
+            BIC    #CPUOFF,0(SP)  
+state00     CMP    #0,state       
+            JNZ    state11     
+            call   #Routine_11
+            jmp    sss
+state11     call   #Routine_22 
+sss         RETI
+;-------------------------------------------------------------------------------------------------------------------------------------------
+;-------------------------------------------------------------------------------------------------------------------------------------------
+            COMMON  INTVEC                  ; Interrupt Vectors-Begins a common segment with name of INTVEC 
+;-------------------------------------------------------------------------------------------------------------------------------------------
+            ORG     PORT1_VECTOR            ;PORT2 Interrupt Vector
+            DW      PORT1_ISR
+            ORG     ADC10_VECTOR            ; ADC10 Vector
+            DW      ADC10_ISR
+            ORG     TIMER0_A0_VECTOR                  
+            DW      TIMER0_ISR
+            ORG     RESET_VECTOR            ; MSP430 RESET Vector
+            DW      Main                   
+            END

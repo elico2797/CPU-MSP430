@@ -1,0 +1,230 @@
+#include <msp430.h> // #include <msp430.h> - can be used as well
+            
+Print       MACRO    text,SIZE           
+            LOCAL    enter,Loop,finish     ; local labels for loop use
+            MOV      SIZE,R4               ; saves string size
+            MOV      #text,R5              ; pointer to the first of the string
+Loop        DEC      R4                    ; dec the lenght og the text
+            JZ       finish
+            mov.b    @R5,R7                ; move letter to R7
+            cmp      #0x5E,R7              ; if R7="^" - go to next line(jmp to enter label)
+            jz       enter                 
+            Lcd_data @R5+                  ; else - print letter and move to the next one
+            JMP      Loop
+enter       Lcd_cmd  #0xC0                 ; next line command
+            INC      R5            
+            JMP      Loop
+finish      ENDM
+         
+           
+Delay       MACRO  cycles
+            LOCAL  L
+            mov.w  cycles,R8     
+L           dec.w  R8                     
+            jnz    L
+            ENDM
+             
+Lcd_cmd     MACRO   command
+            Delay   #1750                  ;5msec
+            mov.b   command,&P2OUT         ;Data Byte = command
+            CALL    #Lcd_strobe            ;update screen
+            ENDM
+
+;-------------------------------------------------------------------------------
+;              Write data byte to LCD MACRO function
+;-------------------------------------------------------------------------------
+Lcd_data    MACRO   letter
+            Delay   #1750                  ; 5msec
+            clr.b   &P2OUT                 ; Data Byte = 0x00
+            bis.b   #BIT5,&P1OUT           ; RS = ‘1’ – Data Byte contains ASCII code
+            mov.b   letter,&P2OUT          ; Data Byte = char
+            call    #Lcd_strobe            ; update screen
+            bic.b   #BIT5,&P1OUT           ; RS = ‘0’ – Data Byte contains instruction code
+            ENDM
+;-------------------------------------------------------------------------------            
+           
+           MODULE   SW
+           PUBLIC   Routine_1,Routine_2,Routine_3,setup_LCD, Routine_11, Routine_22
+           EXTERN   Asci,Duty_cycle, messmin, messmax, messavg, avgs, sleep1
+           RSEG     CODE              
+;-------------------------------------------------------------------------------  
+Lcd_strobe bis.b    #BIT7,&P1OUT              ; E=1
+           NOP
+           NOP
+           bic.b    #BIT7,&P1OUT              ; E=0
+           ret
+;-------------------------------------------------------------------------------
+multi     MACRO     num
+          LOCAL     m1
+          MOV       num, r11
+          mov       #5, r8
+m1        rla       r11
+          dec       r8
+          jnz       m1
+          add       num, r11
+          add       num, r11
+          add       num, r11
+          ENDM
+
+;-------------------------------------------------------------------------------
+Routine_1  
+            clr      r15 ; max value
+            mov      #0xFF,r14 ;min value
+SetupADC10   mov.w   #ADC10SHT_3+ADC10ON+ADC10IE,&ADC10CTL0 ; 16x, enable int.
+             mov.w   #INCH_3, &ADC10CTL1	    ; chanel 1
+             bis.b   #08h,&ADC10AE0          ; P2.3 ADC10 option select
+Mainloop    bis.w    #ENC+ADC10SC,&ADC10CTL0 ; Start sampling/conversion
+            bis.w    #CPUOFF+GIE,SR          ; LPM0, ADC10_ISR will force exit
+            cmp     &ADC10MEM, r14            ; 
+            jn      if1
+            mov     &ADC10MEM, r14
+if1         cmp     r15, &ADC10MEM            ; 
+            jn      if2
+            mov     &ADC10MEM, r15
+if2         jmp     Mainloop                ; Again
+            
+Routine_11
+            Lcd_cmd  #0x01                   ; clear lcd
+            Print   messmin, #7  
+            multi   r14       
+            call    #decimal
+            Lcd_cmd #0xC0
+            Print   messmax, #7
+            multi   r15
+            call    #decimal
+            mov      #0xFF,r14 ;min value
+            clr     r15
+            ret
+            
+            
+Routine_2
+SetupADC11  mov.w   #ADC10SHT_3+ADC10ON+ADC10IE,&ADC10CTL0 ; 16x, enable int.
+            mov.w   #INCH_3, &ADC10CTL1	    ; chanel 1
+            bis.b   #08h,&ADC10AE0          ; P2.3 ADC10 option select
+start1      mov     #0, r13 ;index
+start2      mov     #32, r14  ;counter
+            clr     r15 ;adder
+Mainloop1   bis.w   #ENC+ADC10SC,&ADC10CTL0 ; Start sampling/conversion
+            bis.w   #CPUOFF+GIE,SR          ; LPM0, ADC10_ISR will force exit
+            add     &ADC10MEM, r15
+            dec     r14
+            jnz     Mainloop1
+            ; else
+            mov     #5,r14
+m4          rra     r15
+            dec     r14
+            jnz     m4    
+            mov     r15, avgs(r13)
+            incd    r13
+            cmp     #64, r13
+            jne     start2        
+            jmp     start1
+Routine_22
+            mov     #0,r14
+            mov     #0, r15
+m5          add     avgs(r14), r15
+            incd    r14
+            cmp     #64,r14
+            jne     m5    
+            
+            mov     #5,r14
+m6          rra     r15
+            dec     r14
+            jnz     m6
+            
+            Lcd_cmd  #0x01                   ; clear lcd
+            Print   messavg, #7 
+            multi   r15
+            call    #decimal
+            clr     r15
+            mov     #32, r14  ;counter
+            ret
+          
+
+            
+Routine_3 
+          Lcd_cmd   #0x01
+          Print     sleep1, #13
+          RET
+                   
+setup_LCD   bic.b   #BIT2+BIT5+BIT6+BIT7,&P1SEL ; set P2.5-7 as I/O
+            bis.b   #BIT5+BIT6+BIT7,&P1DIR ; set output
+            bic.b   #BIT5+BIT6+BIT7,&P1OUT
+            
+            mov.b   #0xFF,&P2DIR           ; set output
+            Delay   #5250                  ; 15msec
+            mov.b   #0x3F,&P2OUT           ; Data Byte = 0x3F
+            call    #Lcd_strobe            ; Lcd_strobe routine
+            Delay   #1750                  ; 5msec
+            mov.b   #0x3F,&P2OUT           ; Data Byte = 0x3F
+            call    #Lcd_strobe            ; Lcd_strobe routine
+            Delay   #70                    ; 200usec
+            mov.b   #0x3F,&P2OUT           ; Data Byte = 0x3F
+            call    #Lcd_strobe            ; Lcd_strobe routine
+            Lcd_cmd #0x3C
+            Lcd_cmd #0x0F                  ; cursor on
+            Lcd_cmd #0x01                  ; LCD clear
+            Lcd_cmd #0x06
+            Lcd_cmd #0x80
+            Lcd_cmd #0x02          
+            RET
+            
+            
+decimal     CLR R12           
+line_1      CMP #10000,R11
+            JN  line_2a
+            SUB #10000,R11
+            INC R12
+            JMP line_1
+line_2a     ;CMP #0,R12
+            ;JZ  line_2b
+            RLA R12
+            ADD #Asci, R12
+            Lcd_data @R12
+            CLR R12
+            Lcd_data #46
+line_2b     CMP #1000,R11
+            JN  line_3a
+            SUB #1000,R11
+            INC R12
+            JMP line_2b
+line_3a     ;CMP #0,R12
+            ;JZ  line_3b
+            RLA R12
+            ADD #Asci, R12
+            Lcd_data @R12
+            CLR R12
+line_3b     CMP #100,R11
+            JN  line_4a
+            SUB #100,R11
+            INC R12
+            JMP line_3b
+line_4a     ;CMP #0,R12
+            ;JZ  line_4b
+            RLA R12
+            ADD #Asci, R12
+            Lcd_data @R12
+            CLR R12
+line_4b     CMP #10,R11
+            JN  line_5a
+            SUB #10,R11
+            INC R12
+            JMP line_4b
+line_5a     RLA R12
+            ADD #Asci, R12
+            Lcd_data @R12
+            RLA R11
+            ADD #Asci,R11
+            Lcd_data @R11
+
+            RET
+
+
+            
+
+           ENDMOD
+        
+           
+
+//=============================================================           21 
+           END
