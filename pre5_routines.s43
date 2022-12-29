@@ -1,0 +1,218 @@
+#include <msp430.h> // #include <msp430.h> - can be used as well
+            
+Print       MACRO    text,SIZE           
+            LOCAL    enter,Loop,finish     ; local labels for loop use
+            MOV      SIZE,R4               ; saves string size
+            MOV      #text,R5              ; pointer to the first of the string
+Loop        DEC      R4                    ; dec the lenght og the text
+            JZ       finish
+            mov.b    @R5,R7                ; move letter to R7
+            cmp      #0x5E,R7              ; if R7="^" - go to next line(jmp to enter label)
+            jz       enter                 
+            Lcd_data @R5+                  ; else - print letter and move to the next one
+            JMP      Loop
+enter       Lcd_cmd  #0xC0                 ; next line command
+            INC      R5            
+            JMP      Loop
+finish      ENDM
+         
+           
+Delay       MACRO  cycles
+            LOCAL  L
+            mov.w  cycles,R8     
+L           dec.w  R8                     
+            jnz    L
+            ENDM
+             
+Lcd_cmd     MACRO   command
+            Delay   #1750                  ;5msec
+            mov.b   command,&P1OUT         ;Data Byte = command
+            CALL    #Lcd_strobe            ;update screen
+            ENDM
+
+;-------------------------------------------------------------------------------
+;              Write data byte to LCD MACRO function
+;-------------------------------------------------------------------------------
+Lcd_data    MACRO   letter
+            Delay   #1750                  ; 5msec
+            clr.b   &P1OUT                 ; Data Byte = 0x00
+            bis.b   #BIT5,&P2OUT           ; RS = ‘1’ – Data Byte contains ASCII code
+            mov.b   letter,&P1OUT          ; Data Byte = char
+            call    #Lcd_strobe            ; update screen
+            bic.b   #BIT5,&P2OUT           ; RS = ‘0’ – Data Byte contains instruction code
+            ENDM
+;-------------------------------------------------------------------------------            
+           
+           MODULE   SW
+           PUBLIC   Routine_1,Routine_2,Routine_3,setup_LCD
+           EXTERN   Asci,Print_1,Duty_cycle
+           RSEG     CODE              
+;-------------------------------------------------------------------------------  
+;-------------------------------------------------------------------------------
+Lcd_strobe bis.b    #BIT7,&P2OUT              ; E=1
+           NOP
+           NOP
+           bic.b    #BIT7,&P2OUT              ; E=0
+           ret
+;-------------------------------------------------------------------------------
+Routine_1  Lcd_cmd  #0x01
+           MOV      #Asci, R6
+Labs       MOV      @R6,R7
+           Lcd_data R7
+           CALL     #Routine_0
+           Lcd_cmd  #0x10
+           INCD     R6
+           CMP      #Asci+32,R6
+           JNE      Labs
+           RET
+
+Routine_0 
+          MOV       #Asci, R4
+          Lcd_cmd   #0x0C
+L1        MOV       @R4,R5
+          Lcd_data  R5 
+          Lcd_cmd   #0x10
+          BIS.W     #CPUOFF+GIE,SR
+          INCD      R4
+          CMP       #Asci+32,R4
+          JNE       L1
+          BIC.B     #0xFF, &P2IFG
+          RET
+          
+Routine_2
+          ;setup
+          mov.w   #TASSEL_2+MC_2+ID_3,&TA1CTL   ; 1s interupt, up_downmode, clock1
+          mov.w   #TASSEL_2+MC_1+ID_1,&TACTL   ; PWM, updown mode, clock0       
+          bis.w   #CCIE,&TA1CCTL0
+          mov.w   #0xFFFF,&TA1CCR0
+          bis.b   #004h,&P1DIR            ; P1.2 and P1.3 output
+          bis.b   #004h,&P1SEL            ; P1.2 and P1.3 TA1/2 otions
+          mov.w   #499,&TACCR0              ; PWM is 499 and not 500 so the last duty cycle will be stright line
+          mov.w   #OUTMOD_6,&TACCTL1        ; CCR1 toggle/set
+          mov     #100,R9
+          clr     R5
+          ;end of setup
+          ;start infinit loop
+r_2_loop  bis.w   #LPM0 + GIE,SR
+          CMP     #6,R5
+          JNE     else1
+          clr     R5        ;if R5 = 6 then R5 = 0
+          CMP     #500,R9
+          JNE     else2
+          
+          clr     R9 
+          mov.w   R9,&CCR1 
+          JMP     r_2_loop
+          
+else2     ADD     #100,R9
+          mov.w   R9,&CCR1 
+          JMP     r_2_loop
+          
+else1     INC     R5
+          JMP     r_2_loop
+
+          RET
+          
+
+            
+Routine_3 
+          bis.w   #CCIE,&CCTL0
+          mov.w   #0xFFFF,&CCR0
+          BIS.W   #CPUOFF+GIE,SR
+startover CLR     R11
+          mov     #4,R14
+again     CLR     R13
+          BIS.B   #0x10,&P2IE
+          BIS.W   #CPUOFF+GIE,SR
+          BIC.B   #0x10,&P2IE
+          RRA     R13
+          RRA     R13
+          ADD     R13, R11
+          dec     R14
+          JNZ     again
+          Lcd_cmd #0x01
+          Print   Print_1,#20
+          CALL    #decimal
+          JMP     startover
+          RET
+                   
+setup_LCD   bic.b   #BIT2+BIT5+BIT6+BIT7,&P2SEL ; set P3.5-7 as I/O
+            bis.b   #BIT5+BIT6+BIT7,&P2DIR ; set output
+            bic.b   #BIT5+BIT6+BIT7,&P2OUT
+            
+            mov.b   #0xFF,&P1DIR           ; set output
+            Delay   #5250                  ; 15msec
+            mov.b   #0x3F,&P1OUT           ; Data Byte = 0x3F
+            call    #Lcd_strobe            ; Lcd_strobe routine
+            Delay   #1750                  ; 5msec
+            mov.b   #0x3F,&P1OUT           ; Data Byte = 0x3F
+            call    #Lcd_strobe            ; Lcd_strobe routine
+            Delay   #70                    ; 200usec
+            mov.b   #0x3F,&P1OUT           ; Data Byte = 0x3F
+            call    #Lcd_strobe            ; Lcd_strobe routine
+            Lcd_cmd #0x3C
+            Lcd_cmd #0x0F                  ; cursor on
+            Lcd_cmd #0x01                  ; LCD clear
+            Lcd_cmd #0x06
+            Lcd_cmd #0x80
+            Lcd_cmd #0x02          
+            RET
+            
+            
+decimal     CLR R12           
+line_1      CMP #10000,R11
+            JN  line_2a
+            SUB #10000,R11
+            INC R12
+            JMP line_1
+line_2a     CMP #0,R12
+            JZ  line_2b
+            RLA R12
+            ADD #Asci, R12
+            Lcd_data @R12
+            CLR R12
+line_2b     CMP #1000,R11
+            JN  line_3a
+            SUB #1000,R11
+            INC R12
+            JMP line_2b
+line_3a     CMP #0,R12
+            JZ  line_3b
+            RLA R12
+            ADD #Asci, R12
+            Lcd_data @R12
+            CLR R12
+line_3b     CMP #100,R11
+            JN  line_4a
+            SUB #100,R11
+            INC R12
+            JMP line_3b
+line_4a     CMP #0,R12
+            JZ  line_4b
+             RLA R12
+            ADD #Asci, R12
+            Lcd_data @R12
+            CLR R12
+line_4b     CMP #10,R11
+            JN  line_5a
+            SUB #10,R11
+            INC R12
+            JMP line_4b
+line_5a     RLA R12
+            ADD #Asci, R12
+            Lcd_data @R12
+            RLA R11
+            ADD #Asci,R11
+            Lcd_data @R11
+
+            RET
+
+
+            
+
+           ENDMOD
+        
+           
+
+//=============================================================           21 
+           END

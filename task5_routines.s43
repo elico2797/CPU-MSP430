@@ -1,0 +1,46 @@
+#include <msp430.h> // #include <msp430.h> - can be used as well
+  
+           MODULE   SW
+           PUBLIC   Routine_1
+           EXTERN   sounds, length, tavim
+           RSEG     CODE        
+           
+;-------------------------------------------------------------------------------
+          
+Routine_1
+          ;setup
+          
+          mov.w   #TASSEL_2+MC_1+ID_0,&TACTL   ; PWM, updown mode, clock0    
+          mov.w   #TASSEL_2+MC_1+ID_3,&TA1CTL    
+          bis.w   #CCIE,&TA1CCTL0
+          mov.w   #0xF000,&TA1CCR0
+          bis.b   #004h,&P1DIR            ; P1.2 and P1.3 output
+          bis.b   #004h,&P1SEL            ; P1.2 and P1.3 TA1/2 otions
+          
+              
+          mov.w   #OUTMOD_6,&TACCTL1        ; CCR1 toggle/set
+         ;end of setup
+         
+         ;start infinit loop
+         
+         
+loop1     mov     #tavim, R14
+          mov     @R14, R15
+          mov     #16, R13
+r_2_loop  bis.w   #LPM0 + GIE,SR
+          INCD    R14
+          MOV     @R14, R15
+          mov.w   R15,&TACCR0
+          RRA     R15
+          mov.w   R15,&CCR1 
+          DEC     R13
+          JNZ     r_2_loop
+          jmp     loop1
+          RET
+          
+          
+          
+           ENDMOD
+
+//=============================================================           21 
+           END
