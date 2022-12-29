@@ -1,0 +1,100 @@
+#include "msp430g2553.h" // #include <msp430.h> - can be used as well
+
+
+Debounce     MACRO  cycles
+             LOCAL  L
+             mov.w  cycles,R12     
+L            dec.w  R12                     
+             jnz    L
+             ENDM
+;-------------------------------------------------------------------------------
+            ORG     0x200                  ; Begins a RAM segment
+;-------------------------------------------------------------------------------
+state       DW      3                       ; STATE 3 IS SLEEP MODE
+Pull        EQU     280                     ; wait of 0.8msec = (3op*280)/2^20
+            NAME    Main
+            PUBLIC  Main,state
+            EXTERN  Routine_1,Routine_2,Routine_3
+;-------------------------------------------------------------------------------
+            RSEG    CSTACK                  ; Begins a relocatable segment name of CSTACK - Define stack segment
+;-------------------------------------------------------------------------------
+            RSEG    CODE                    ; Assemble to Flash memory -like void main in C
+;-----------------------------------------------------------------------------
+Main         MOV.W   #SFE(CSTACK),SP        ; Initialize stack pointer
+StopWDT      MOV.W   #WDTPW+WDTHOLD,&WDTCTL
+
+SetupPB      BIS.B   #0xFF,&P1DIR         ; output = #0xff -->M(PBDIR)
+             CLR.B   &P1OUT
+             
+SetupP2      BIC.B   #0xC0,&P2SEL
+             BIC.B   #0xFF,&P2DIR
+             MOV.B   #0x30,&P2IES
+             MOV.B   #0xF0,&P2IE
+             BIC.B   #0xF0,&P2IFG           ; reset of interrupt flag   
+             
+            
+;----------- FSM_loop -------------------------------------
+state0       CMP     #0,state       
+             JNZ     state1
+             CLR.B   &P1OUT
+             CALL    #Routine_1
+             CLR.B   &P1OUT
+             JMP     nomy
+             
+
+state1       CMP     #1,state
+             JNZ     state2       
+             CLR.B   &P1OUT
+             CALL    #Routine_2
+             CLR.B   &P1OUT
+             JMP     nomy
+             
+             
+state2       CMP     #2,state
+             JNZ     state3  
+             CLR.B   &P1OUT
+             CALL    #Routine_3
+             CLR.B   &P1OUT
+             JMP     nomy
+             
+state3       CMP     #3,state
+             JNZ     state0  
+             CLR.B   &P1OUT
+nomy         BIS.W   #CPUOFF+GIE,SR          ; SLEEP 
+             JMP     state0      
+;------------------------------------------------------------------------------------------ 
+;               PORT2 Interrupt Service Routine  of SW1=P1.0
+;------------------------------------------------------------------------------------------
+PORT2_ISR   Debounce #Pull
+            CLRZ
+Check0      CMP.B   #0x10,&P2IFG            ; CHECK IF ONLY BUTTON 0 IS ON
+            JZ      P2_0 
+Check1      CMP.B   #0x20,&P2IFG            ; CHECK IF ONLY BUTTON 1 IS ON
+            JZ      P2_1 
+Check3      CMP.B   #0x40,&P2IFG            ; CHECK IF ONLY BUTTON 2 IS ON
+            JZ      P2_2 
+Check4      CMP.B   #0x80,&P2IFG            ; CHECK IF ONLY BUTTON 3 IS ON
+            JZ      P2_3 
+            
+P2_0        MOV    #0,state                 ; WE ARE IN STATE 0
+            JMP    RETURN
+P2_1        MOV    #1,state                 ; WE ARE IN STATE 1
+            JMP    RETURN
+P2_2        MOV    #2,state                 ; WE ARE IN STATE 2
+            JMP    RETURN
+P2_3        MOV    #3,state                 ; WE ARE IN STATE 3
+            BIC.B  #0xF0,&P2IFG
+            BIC.B  #0xFF,&P1OUT
+            JMP    nomy
+
+RETURN      BIC.B  #0xF0,&P2IFG
+            BIC    #CPUOFF,0(SP)  ; Exit LMP0
+            RETI 
+;-------------------------------------------------------------------------------------------------------------------------------------------
+            COMMON  INTVEC                  ; Interrupt Vectors-Begins a common segment with name of INTVEC 
+;-------------------------------------------------------------------------------------------------------------------------------------------
+            ORG     PORT2_VECTOR            ;PORT2 Interrupt Vector
+            DW      PORT2_ISR
+            ORG     RESET_VECTOR            ; MSP430 RESET Vector
+            DW      Main                   
+            END
