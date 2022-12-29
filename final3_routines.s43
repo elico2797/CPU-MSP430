@@ -1,0 +1,40 @@
+#include <msp430xG46x.h> 
+
+           MODULE   SW
+           PUBLIC   Routine_1,Routine_2,Routine_3,Routine_4
+           RSEG     CODE
+Routine_1 
+           MOV.B #0x00,P7OUT           
+           RET
+Routine_2   
+           MOV.B #0x00,P7OUT   
+           CALL #Wait
+           CALL #Wait
+           CALL #Wait
+           MOV.B #0x01,P7OUT 
+           CALL #Wait 
+           RET
+          
+Routine_3
+           MOV.B #0x00,P7OUT   
+           CALL #Wait
+           CALL #Wait
+           MOV.B #0x01,P7OUT 
+           CALL #Wait
+           CALL #Wait 
+           RET
+
+
+Routine_4 
+           MOV.B #0x01,P7OUT           
+           RET
+            
+Wait       MOV.W #018,R15
+L          DEC.W R15
+           JNZ L   
+           INC R15
+           RET
+           
+           ENDMOD
+//=============================================================           21 
+           END

@@ -1,0 +1,29 @@
+#include <msp430g2553.h>              ; define controlled include file
+
+         ORG 1100h
+ID       DW  "3181919120690344"
+
+         NAME    Main
+         PUBLIC  Main
+         EXTERN  Routine_1
+         RSEG CSTACK
+         RSEG CODE ; ORG 0x3100 - place program in 'CODE' segment into Flash memory 
+         
+Main     MOV #SFE(CSTACK),SP
+StopWDT  MOV.W #WDTPW+WDTHOLD,&WDTCTL         
+SetupP1  MOV.B #0xFF, &P1DIR
+SetupP2  MOV.B #0x00, &P2DIR
+ClearPB  MOV.B #0x0, &P1OUT
+loop     CMP.B #0x01,&P2IN
+         CALL #Routine_1
+         JMP ClearPB
+      
+
+                  
+         
+;-------------------------------------------------------------------------------
+         COMMON  INTVEC                  ; Interrupt Vectors
+;-------------------------------------------------------------------------------
+         ORG     RESET_VECTOR            ; POR, ext. Reset
+         DW      Main
+         END  

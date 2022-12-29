@@ -1,0 +1,22 @@
+#include <msp430g2553.h>
+
+           MODULE   SW
+           PUBLIC   Routine_1
+           RSEG     CODE
+Routine_1 
+           MOV #0x0,R4
+Upstairs   MOV.B R4,P1OUT
+           CALL #Wait
+           CMP #0xFF,R4
+           INC R4
+           JNZ Upstairs
+           RET
+            
+Wait       MOV.W #065000,R15
+L          DEC.W R15
+           JNZ L    
+           RET
+           
+           ENDMOD
+//=============================================================            
+           END
